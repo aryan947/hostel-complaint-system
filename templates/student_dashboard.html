@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}My Complaints{% endblock %}
+{% block content %}
+<h1>My Complaints</h1>
+<div class="stats">
+  {% for s in STATUSES %}<div class="stat"><b>{{ counts[s] }}</b><span>{{ s }}</span></div>{% endfor %}
+</div>
+<a class="btn" href="{{ url_for('new_complaint') }}" style="margin:0 0 1rem">+ New Complaint</a>
+{% if complaints %}
+<div class="table-wrap"><table>
+  <tr><th>#</th><th>Title</th><th>Category</th><th>Priority</th><th>Status</th><th>Filed on</th><th></th></tr>
+  {% for c in complaints %}
+  <tr>
+    <td>{{ c.id }}</td>
+    <td>{{ c.title }}</td>
+    <td>{{ c.category }}</td>
+    <td><span class="badge p-{{ c.priority }}">{{ c.priority }}</span></td>
+    <td><span class="badge s-{{ c.status|replace(' ','') }}">{{ c.status }}</span>
+        {% if is_overdue(c) %}<span class="badge overdue">Overdue</span>{% endif %}</td>
+    <td>{{ c.created_at[:16] }}</td>
+    <td><a href="{{ url_for('view_complaint', cid=c.id) }}">View</a></td>
+  </tr>
+  {% endfor %}
+</table></div>
+{% else %}
+<div class="card empty">You have not filed any complaints yet.</div>
+{% endif %}
+{% endblock %}

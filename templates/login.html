@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Login{% endblock %}
+{% block content %}
+<div class="auth">
+  <aside class="auth-side">
+    <span class="logo big">H</span>
+    <h2>Welcome back</h2>
+    <p>Log in to track your complaints or manage hostel issues as warden.</p>
+    <ul><li>Live status timeline</li><li>Photo attachments</li><li>Feedback after every fix</li></ul>
+  </aside>
+  <div class="auth-form">
+    <h2>Login</h2>
+    <form method="post">
+      <label>Username / PRN</label><input name="username" required autofocus>
+      <label>Password</label><input type="password" name="password" required>
+      <button class="btn" type="submit">Login</button>
+    </form>
+    <p class="muted">New student? <a href="{{ url_for('register') }}">Register here</a>.</p>
+  </div>
+</div>
+{% endblock %}

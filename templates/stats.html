@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Statistics{% endblock %}
+{% block content %}
+<h1>Statistics</h1>
+<div class="stats">
+  <div class="stat"><b>{{ summary.total }}</b><span>Total complaints</span></div>
+  <div class="stat"><b>{{ summary.avg_hrs if summary.avg_hrs is not none else '-' }}</b><span>Avg. resolution (hours)</span></div>
+  <div class="stat"><b>{{ rating.r if rating.r is not none else '-' }}</b><span>Avg. rating ({{ rating.n }} reviews)</span></div>
+  <div class="stat"><b style="color:var(--red)">{{ overdue }}</b><span>Overdue now</span></div>
+</div>
+<div class="grid2">
+  <div class="card"><h3>Complaints by category</h3><canvas id="catChart"></canvas></div>
+  <div class="card"><h3>Complaints by status</h3><canvas id="statusChart"></canvas></div>
+  <div class="card"><h3>Avg. resolution time by category (hours)</h3>
+    {% if avg_res %}<canvas id="resChart"></canvas>{% else %}<p class="muted">No resolved complaints yet.</p>{% endif %}</div>
+  <div class="card"><h3>Rooms with repeated complaints</h3>
+    {% if hot_rooms %}<table><tr><th>Block</th><th>Room</th><th>Complaints</th></tr>
+      {% for r in hot_rooms %}<tr><td>{{ r.block }}</td><td>{{ r.room_no }}</td><td>{{ r.n }}</td></tr>{% endfor %}</table>
+    {% else %}<p class="muted">No room has more than one complaint yet.</p>{% endif %}</div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+const teal='#028090', amber='#f2a541', navy='#0b3c49', green='#02c39a';
+const cat = {{ by_cat|tojson }}, st = {{ by_status|tojson }}, res = {{ avg_res|tojson }};
+if (window.Chart) {
+  new Chart(document.getElementById('catChart'), {type:'bar',
+    data:{labels:cat.map(x=>x.name),datasets:[{data:cat.map(x=>x.n),backgroundColor:teal}]},
+    options:{plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,ticks:{precision:0}}}}});
+  new Chart(document.getElementById('statusChart'), {type:'doughnut',
+    data:{labels:Object.keys(st),datasets:[{data:Object.values(st),backgroundColor:['#a8dadc',teal,amber,green]}]}});
+  const rc = document.getElementById('resChart');
+  if (rc) new Chart(rc, {type:'bar',
+    data:{labels:res.map(x=>x.name),datasets:[{data:res.map(x=>x.hrs),backgroundColor:navy}]},
+    options:{plugins:{legend:{display:false}},scales:{y:{beginAtZero:true}}}});
+}
+</script>
+{% endblock %}

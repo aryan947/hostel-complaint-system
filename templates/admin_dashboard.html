@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Warden Dashboard{% endblock %}
+{% block content %}
+<h1>Warden Dashboard</h1>
+<div class="stats">
+  {% for s in STATUSES %}<div class="stat"><b>{{ totals[s] }}</b><span>{{ s }}</span></div>{% endfor %}
+  <div class="stat"><b style="color:var(--red)">{{ overdue }}</b><span>Overdue</span></div>
+</div>
+<form class="card filters" method="get">
+  <div><label>Status</label><select name="status"><option value="">All</option>
+    {% for s in STATUSES %}<option {{ 'selected' if f.status == s }}>{{ s }}</option>{% endfor %}</select></div>
+  <div><label>Category</label><select name="category"><option value="">All</option>
+    {% for c in cats %}<option value="{{ c.id }}" {{ 'selected' if f.category == c.id }}>{{ c.name }}</option>{% endfor %}</select></div>
+  <div><label>Priority</label><select name="priority"><option value="">All</option>
+    {% for p in priorities %}<option {{ 'selected' if f.priority == p }}>{{ p }}</option>{% endfor %}</select></div>
+  <div><label>Block</label><input name="block" value="{{ f.block }}"></div>
+  <div><label>Room</label><input name="room" value="{{ f.room }}"></div>
+  <div><button class="btn" type="submit">Filter</button> <a class="btn sec" href="{{ url_for('admin_dashboard') }}" style="margin:0">Reset</a></div>
+</form>
+{% if complaints %}
+<div class="table-wrap"><table>
+  <tr><th>#</th><th>Title</th><th>Category</th><th>Student / Room</th><th>Priority</th><th>Status</th><th>Assigned</th><th>Filed</th><th></th></tr>
+  {% for c in complaints %}
+  <tr>
+    <td>{{ c.id }}</td><td>{{ c.title }}</td><td>{{ c.category }}</td>
+    <td>{{ c.student }}<br><small class="muted">Block {{ c.block }}, Room {{ c.room_no }}</small></td>
+    <td><span class="badge p-{{ c.priority }}">{{ c.priority }}</span></td>
+    <td><span class="badge s-{{ c.status|replace(' ','') }}">{{ c.status }}</span>
+        {% if is_overdue(c) %}<span class="badge overdue">Overdue</span>{% endif %}</td>
+    <td>{{ c.staff_name or '-' }}</td>
+    <td>{{ c.created_at[:16] }}</td>
+    <td><a href="{{ url_for('view_complaint', cid=c.id) }}">Manage</a></td>
+  </tr>
+  {% endfor %}
+</table></div>
+{% else %}<div class="card empty">No complaints match these filters.</div>{% endif %}
+{% endblock %}

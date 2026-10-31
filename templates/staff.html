@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Maintenance Staff{% endblock %}
+{% block content %}
+<h1>Maintenance Staff</h1>
+<div class="grid2">
+  <div class="table-wrap"><table>
+    <tr><th>Name</th><th>Skill</th><th>Phone</th><th>Open jobs</th></tr>
+    {% for s in staff %}<tr><td>{{ s.name }}</td><td>{{ s.skill }}</td><td>{{ s.phone or '-' }}</td><td>{{ s.open_jobs }}</td></tr>{% endfor %}
+  </table></div>
+  <div class="card">
+    <h3>Add staff member</h3>
+    <form method="post">
+      <label>Name</label><input name="name" required>
+      <label>Skill</label><input name="skill" placeholder="e.g. Electrician" required>
+      <label>Phone</label><input name="phone">
+      <button class="btn" type="submit">Add</button>
+    </form>
+  </div>
+</div>
+{% endblock %}
