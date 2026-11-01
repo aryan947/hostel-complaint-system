@@ -29,3 +29,7 @@ Thumbs.db
 
 # Environment variables
 .env
+
+# Development files
+check_db.py
+read_excel.py

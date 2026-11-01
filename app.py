@@ -155,6 +155,141 @@ def init_db():
     db.commit()
     db.close()
 
+    # Load sample data from Excel if it exists and database is empty
+    load_sample_data()
+
+
+def load_sample_data():
+    """Load sample data from Excel file if available and database has no students."""
+    try:
+        import pandas as pd
+        excel_file = os.path.join(BASE_DIR, "hostel_complaints.xlsx")
+        if not os.path.exists(excel_file):
+            return
+
+        db = sqlite3.connect(DB_PATH)
+        db.row_factory = sqlite3.Row
+
+        # Check if we already have students
+        if db.execute("SELECT 1 FROM users WHERE role='student'").fetchone():
+            db.close()
+            return
+
+        # Create students
+        students_map = {
+            "Amruta": ("amruta", "B", "101", "Amrut@00"),
+            "Sanika": ("sanika", "A", "204", "S@nika10"),
+            "Prachi": ("prachi", "C", "301", "Pr@chi11"),
+        }
+
+        for name, (username, block, room, password) in students_map.items():
+            db.execute("INSERT OR IGNORE INTO users(name, username, role, block, room_no, password_hash) VALUES (?,?,?,?,?,?)",
+                       (name, username, "student", block, room, generate_password_hash(password)))
+
+        # Get category IDs
+        category_ids = {r["name"]: r["id"] for r in db.execute("SELECT * FROM categories").fetchall()}
+
+        # Get staff IDs
+        staff_ids = {r["name"]: r["id"] for r in db.execute("SELECT * FROM staff").fetchall()}
+
+        # Get student IDs
+        student_ids = {r["name"]: r["id"] for r in db.execute("SELECT * FROM users WHERE role='student'").fetchall()}
+
+        # Map Excel student names to new student accounts
+        student_name_mapping = {
+            "Sagar More": "Amruta",
+            "Pratik Shinde": "Prachi",
+            "Aryan Patil": "Sanika",
+        }
+
+        # Read Excel data
+        df = pd.read_excel(excel_file)
+        df = df.dropna(subset=['Title'])
+
+        from datetime import datetime, timedelta
+
+        # Process each complaint from Excel
+        for _, row in df.iterrows():
+            title = row['Title']
+            category = row['Category']
+            student_name = row['Student']
+            priority = row['Priority']
+            status = row['Status']
+            assigned_to = row['Assigned To']
+            filed_on = row['Filed On']
+
+            # Skip if category not found
+            if category not in category_ids:
+                continue
+
+            # Get student ID (map Excel names to new student accounts)
+            mapped_name = student_name_mapping.get(student_name, student_name)
+            student_id = student_ids.get(mapped_name)
+            if not student_id:
+                continue
+
+            # Get category ID
+            category_id = category_ids[category]
+
+            # Get staff ID if assigned
+            assigned_staff_id = None
+            if assigned_to and assigned_to != "-":
+                assigned_staff_id = staff_ids.get(assigned_to)
+
+            # Parse date
+            if pd.notna(filed_on):
+                if isinstance(filed_on, str):
+                    if len(filed_on) == 16:
+                        created_at = filed_on + ":00"
+                    else:
+                        created_at = filed_on
+                else:
+                    created_at = filed_on.strftime("%Y-%m-%d %H:%M:%S")
+            else:
+                created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+            # Set resolved_at based on status
+            resolved_at = None
+            if status == "Resolved":
+                created_dt = datetime.strptime(created_at, "%Y-%m-%d %H:%M:%S")
+                resolved_dt = created_dt + timedelta(hours=24)
+                resolved_at = resolved_dt.strftime("%Y-%m-%d %H:%M:%S")
+
+            # Generate description based on title
+            descriptions = {
+                "Fan not working": "Ceiling fan has stopped running.",
+                "Tap leaking": "Bathroom tap drips all day.",
+                "Bathroom not cleaned": "Not cleaned for 3 days.",
+                "Mess food quality": "Food was stale at dinner.",
+                "Broken chair": "Study chair leg is broken.",
+                "Wi-Fi very slow": "Internet drops every few minutes.",
+                "Tube light flickering": "Light flickers constantly.",
+                "No hot water": "Geyser not heating.",
+            }
+            description = descriptions.get(title, f"Issue with {title}")
+
+            # Insert complaint
+            cur = db.execute("""INSERT INTO complaints(student_id, category_id, title, description, priority, status,
+                                assigned_to, created_at, resolved_at) VALUES (?,?,?,?,?,?,?,?,?)""",
+                             (student_id, category_id, title, description, priority, status, assigned_staff_id, created_at, resolved_at))
+
+            # Add history
+            db.execute("INSERT INTO history(complaint_id, status, note, at) VALUES (?,?,?,?)",
+                       (cur.lastrowid, "Submitted", "Complaint registered by student", created_at))
+
+            if assigned_staff_id:
+                db.execute("INSERT INTO history(complaint_id, status, note, at) VALUES (?,?,?,?)",
+                           (cur.lastrowid, "Assigned", f"Assigned to {assigned_to}", created_at))
+
+            if status == "Resolved":
+                db.execute("INSERT INTO history(complaint_id, status, note, at) VALUES (?,?,?,?)",
+                           (cur.lastrowid, "Resolved", "Work completed", resolved_at))
+
+        db.commit()
+        db.close()
+    except Exception as e:
+        print(f"Could not load sample data: {e}")
+
 
 # ---------- auth ----------
 # Runs before EVERY request. If a user_id is stored in the session (set at login),
