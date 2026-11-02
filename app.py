@@ -35,13 +35,17 @@ ALLOWED_EXT = {"png", "jpg", "jpeg", "gif", "webp"}
 
 # Complaint categories (saved into the database the first time the app runs).
 CATEGORIES = ["Electrical", "Water & Plumbing", "Cleanliness", "Food / Mess",
-              "Furniture", "Internet / Wi-Fi", "Security", "Other"]
+              "Furniture", "Internet / Wi-Fi", "Security", "Staff Behavior", "Other"]
 # The life cycle of a complaint, in order. The warden moves a complaint along these steps.
-STATUSES = ["Submitted", "Assigned", "In Progress", "Resolved"]
+STATUSES = ["Submitted", "Assigned", "In Progress", "Resolved", "Escalated"]
 # Normal or Urgent. Urgent is meant only for water, electricity or safety problems.
 PRIORITIES = ["Normal", "Urgent"]
 # A complaint still open after this many days is flagged "Overdue" (auto-escalation)
 OVERDUE_DAYS = {"Normal": 3, "Urgent": 1}
+# User roles in hierarchy: Admin -> Rector -> Warden -> Student
+ROLES = ["student", "warden", "rector", "admin"]
+# Complaint target types
+TARGET_TYPES = ["facility", "staff", "warden", "rector"]
 
 # Create the Flask application. Every @app.route below is attached to this object.
 app = Flask(__name__)
@@ -58,7 +62,7 @@ CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
     username TEXT NOT NULL UNIQUE,
-    role TEXT NOT NULL CHECK (role IN ('student','warden')),
+    role TEXT NOT NULL CHECK (role IN ('student','warden','rector','admin')),
     block TEXT,
     room_no TEXT,
     password_hash TEXT NOT NULL
@@ -84,7 +88,10 @@ CREATE TABLE IF NOT EXISTS complaints (
     status TEXT NOT NULL DEFAULT 'Submitted',
     assigned_to INTEGER REFERENCES staff(id),
     created_at TEXT NOT NULL,
-    resolved_at TEXT
+    resolved_at TEXT,
+    target_type TEXT DEFAULT 'facility',
+    target_id INTEGER,
+    is_anonymous INTEGER DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS history (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -131,7 +138,7 @@ def now():
 
 
 # init_db() runs once when the app starts: it creates the tables if missing and adds
-# the categories, a default warden account and some sample staff.
+# the categories, default accounts (admin, rector, warden) and some sample staff.
 # INSERT OR IGNORE skips rows that already exist.
 # The ? marks are placeholders: values are passed separately, which prevents SQL injection.
 def init_db():
@@ -140,7 +147,17 @@ def init_db():
     db.executescript(SCHEMA)
     for c in CATEGORIES:
         db.execute("INSERT OR IGNORE INTO categories(name) VALUES (?)", (c,))
-    # Create the default warden login only if no warden exists yet (the password is stored hashed).
+    # Create default admin account
+    if not db.execute("SELECT 1 FROM users WHERE role='admin'").fetchone():
+        db.execute(
+            "INSERT INTO users(name, username, role, password_hash) VALUES (?,?,?,?)",
+            ("System Admin", "admin", "admin", generate_password_hash("Admin@123")))
+    # Create default rector account
+    if not db.execute("SELECT 1 FROM users WHERE role='rector'").fetchone():
+        db.execute(
+            "INSERT INTO users(name, username, role, password_hash) VALUES (?,?,?,?)",
+            ("Hostel Rector", "rector", "rector", generate_password_hash("Rector@123")))
+    # Create default warden login only if no warden exists yet (the password is stored hashed).
     if not db.execute("SELECT 1 FROM users WHERE role='warden'").fetchone():
         db.execute(
             "INSERT INTO users(name, username, role, password_hash) VALUES (?,?,?,?)",
@@ -185,6 +202,10 @@ def load_sample_data():
         for name, (username, block, room, password) in students_map.items():
             db.execute("INSERT OR IGNORE INTO users(name, username, role, block, room_no, password_hash) VALUES (?,?,?,?,?,?)",
                        (name, username, "student", block, room, generate_password_hash(password)))
+
+        # Create default warden account
+        db.execute("INSERT OR IGNORE INTO users(name, username, role, password_hash) VALUES (?,?,?,?)",
+                   ("Hostel Warden", "warden", "warden", generate_password_hash("warden123")))
 
         # Get category IDs
         category_ids = {r["name"]: r["id"] for r in db.execute("SELECT * FROM categories").fetchall()}
@@ -355,7 +376,16 @@ def public_stats():
 def index():
     if g.user is None:
         return render_template("home.html", st=public_stats(), categories=CATEGORIES)
-    return redirect(url_for("admin_dashboard" if g.user["role"] == "warden" else "student_dashboard"))
+    # Redirect to appropriate dashboard based on role
+    role = g.user["role"]
+    if role == "admin":
+        return redirect(url_for("admin_dashboard"))
+    elif role == "rector":
+        return redirect(url_for("rector_dashboard"))
+    elif role == "warden":
+        return redirect(url_for("warden_dashboard"))
+    else:  # student
+        return redirect(url_for("student_dashboard"))
 
 
 @app.route("/home")
@@ -435,14 +465,20 @@ def student_dashboard():
 def new_complaint():
     db = get_db()
     cats = db.execute("SELECT * FROM categories ORDER BY name").fetchall()
+    wardens = db.execute("SELECT * FROM users WHERE role='warden'").fetchall()
     if request.method == "POST":
         title = request.form["title"].strip()
         desc = request.form["description"].strip()
         cat_id = request.form.get("category_id", type=int)
         priority = request.form.get("priority", "Normal")
+        target_type = request.form.get("target_type", "facility")
+        target_id = request.form.get("target_id", type=int) if target_type != "facility" else None
+        is_anonymous = 1 if request.form.get("anonymous") else 0
+
         if not title or not desc or not cat_id or priority not in PRIORITIES:
             flash("Please fill in all required fields.", "error")
-            return render_template("new_complaint.html", cats=cats, priorities=PRIORITIES)
+            return render_template("new_complaint.html", cats=cats, priorities=PRIORITIES, wardens=wardens)
+
         photo_name = None
         f = request.files.get("photo")
         # The photo is optional. Check the file extension, then save it with a random prefix so two
@@ -451,26 +487,38 @@ def new_complaint():
             ext = f.filename.rsplit(".", 1)[-1].lower() if "." in f.filename else ""
             if ext not in ALLOWED_EXT:
                 flash("Photo must be a PNG, JPG, GIF or WEBP image.", "error")
-                return render_template("new_complaint.html", cats=cats, priorities=PRIORITIES)
+                return render_template("new_complaint.html", cats=cats, priorities=PRIORITIES, wardens=wardens)
             photo_name = secrets.token_hex(8) + "_" + secure_filename(f.filename)
             f.save(os.path.join(UPLOAD_DIR, photo_name))
+
         ts = now()
+        # Auto-escalate complaints about wardens
+        status = "Escalated" if target_type == "warden" else "Submitted"
+
         # Save the complaint. cur.lastrowid is the new complaint id (used for the history row and the redirect).
         cur = db.execute(
-            """INSERT INTO complaints(student_id, category_id, title, description, photo, priority, status, created_at)
-               VALUES (?,?,?,?,?,?,?,?)""",
-            (g.user["id"], cat_id, title, desc, photo_name, priority, "Submitted", ts))
+            """INSERT INTO complaints(student_id, category_id, title, description, photo, priority, status, created_at, target_type, target_id, is_anonymous)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+            (g.user["id"], cat_id, title, desc, photo_name, priority, status, ts, target_type, target_id, is_anonymous))
+
+        note = "Complaint registered by student"
+        if is_anonymous:
+            note += " (Anonymous)"
+        if target_type == "warden":
+            note += " - Escalated to Rector"
+
         db.execute("INSERT INTO history(complaint_id, status, note, at) VALUES (?,?,?,?)",
-                   (cur.lastrowid, "Submitted", "Complaint registered by student", ts))
+                   (cur.lastrowid, status, note, ts))
         db.commit()
         flash(f"Complaint #{cur.lastrowid} submitted.", "ok")
         return redirect(url_for("view_complaint", cid=cur.lastrowid))
-    return render_template("new_complaint.html", cats=cats, priorities=PRIORITIES)
+    return render_template("new_complaint.html", cats=cats, priorities=PRIORITIES, wardens=wardens)
 
 
 # Complaint detail page. <int:cid> in the URL becomes the cid argument, e.g. /complaint/9.
 # LEFT JOIN keeps the complaint even if no staff member is assigned yet.
-# A student may open only their own complaints (else 403); the warden may open any.
+# A student may open only their own complaints (else 403); the warden may open any
+# EXCEPT complaints about themselves (which are escalated to rector).
 @app.route("/complaint/<int:cid>")
 @login_required()
 def view_complaint(cid):
@@ -486,6 +534,9 @@ def view_complaint(cid):
     if c is None:
         abort(404)
     if g.user["role"] == "student" and c["student_id"] != g.user["id"]:
+        abort(403)
+    # Warden cannot see complaints about themselves
+    if g.user["role"] == "warden" and c["target_type"] == "warden" and c["target_id"] == g.user["id"]:
         abort(403)
     hist = db.execute("SELECT * FROM history WHERE complaint_id=? ORDER BY id", (cid,)).fetchall()
     fb = db.execute("SELECT * FROM feedback WHERE complaint_id=?", (cid,)).fetchone()
@@ -539,21 +590,23 @@ def uploaded_file(filename):
 # Warden dashboard with filters. The SQL is built step by step: each filter chosen adds an AND condition.
 # The ? placeholders and the args list keep user input out of the SQL text (safe from SQL injection).
 # ORDER BY puts unresolved complaints first, then Urgent first, then newest first.
-@app.route("/admin")
+@app.route("/warden")
 @login_required("warden")
-def admin_dashboard():
+def warden_dashboard():
     db = get_db()
     status = request.args.get("status", "")
     cat = request.args.get("category", type=int)
     block = request.args.get("block", "").strip().upper()
     room = request.args.get("room", "").strip()
     prio = request.args.get("priority", "")
+    # Warden cannot see complaints about themselves
     sql = """SELECT c.*, cat.name AS category, u.name AS student, u.block, u.room_no, s.name AS staff_name
              FROM complaints c
              JOIN categories cat ON cat.id=c.category_id
              JOIN users u ON u.id=c.student_id
-             LEFT JOIN staff s ON s.id=c.assigned_to WHERE 1=1"""
-    args = []
+             LEFT JOIN staff s ON s.id=c.assigned_to
+             WHERE (c.target_type != 'warden' OR c.target_id IS NULL OR c.target_id != ?)"""
+    args = [g.user["id"]]
     if status in STATUSES:
         sql += " AND c.status=?"; args.append(status)
     if cat:
@@ -569,7 +622,7 @@ def admin_dashboard():
     cats = db.execute("SELECT * FROM categories ORDER BY name").fetchall()
     totals = {s: db.execute("SELECT COUNT(*) FROM complaints WHERE status=?", (s,)).fetchone()[0] for s in STATUSES}
     overdue = sum(1 for r in db.execute("SELECT * FROM complaints").fetchall() if is_overdue(r))
-    return render_template("admin_dashboard.html", complaints=rows, cats=cats, totals=totals,
+    return render_template("warden_dashboard.html", complaints=rows, cats=cats, totals=totals,
                            overdue=overdue, priorities=PRIORITIES,
                            f=dict(status=status, category=cat, block=block, room=room, priority=prio))
 
@@ -578,7 +631,7 @@ def admin_dashboard():
 # Rules: choosing staff on a Submitted complaint makes it Assigned; a complaint cannot move forward without staff.
 # resolved_at is saved only when the status becomes Resolved.
 # Every change is written to the history table, which is what the Progress Timeline shows.
-@app.route("/admin/complaint/<int:cid>/update", methods=["POST"])
+@app.route("/warden/complaint/<int:cid>/update", methods=["POST"])
 @login_required("warden")
 def update_complaint(cid):
     db = get_db()
@@ -615,7 +668,7 @@ def update_complaint(cid):
 
 # Maintenance staff page: GET shows the list (open_jobs = unresolved complaints per staff member),
 # POST adds a new staff member.
-@app.route("/admin/staff", methods=["GET", "POST"])
+@app.route("/warden/staff", methods=["GET", "POST"])
 @login_required("warden")
 def manage_staff():
     db = get_db()
@@ -638,7 +691,7 @@ def manage_staff():
 # Statistics page. Each query feeds one box or chart: complaints by category, by status,
 # average hours to resolve, rooms with more than one complaint (HAVING n>1), average rating, overdue count.
 # dict(r) turns database rows into dictionaries so the template can pass them to Chart.js.
-@app.route("/admin/stats")
+@app.route("/warden/stats")
 @login_required("warden")
 def stats():
     db = get_db()
@@ -659,6 +712,132 @@ def stats():
     return render_template("stats.html", by_cat=[dict(r) for r in by_cat], by_status=by_status,
                            avg_res=[dict(r) for r in avg_res], hot_rooms=hot_rooms,
                            summary=summary, rating=rating, overdue=overdue)
+
+
+# ---------- Admin ----------
+# Admin dashboard: manage all users (students, wardens, rectors), view system-wide statistics
+@app.route("/admin")
+@login_required("admin")
+def admin_dashboard():
+    db = get_db()
+    # Get all users with their roles
+    users = db.execute("SELECT * FROM users ORDER BY role, name").fetchall()
+    # Count users by role
+    role_counts = {role: db.execute("SELECT COUNT(*) FROM users WHERE role=?", (role,)).fetchone()[0] for role in ROLES}
+    # System-wide statistics
+    total_complaints = db.execute("SELECT COUNT(*) FROM complaints").fetchone()[0]
+    total_resolved = db.execute("SELECT COUNT(*) FROM complaints WHERE status='Resolved'").fetchone()[0]
+    total_staff = db.execute("SELECT COUNT(*) FROM staff").fetchone()[0]
+    return render_template("admin_dashboard.html", users=users, role_counts=role_counts,
+                           total_complaints=total_complaints, total_resolved=total_resolved,
+                           total_staff=total_staff, roles=ROLES)
+
+
+# Admin creates a new user (warden, rector, or student)
+@app.route("/admin/user/new", methods=["GET", "POST"])
+@login_required("admin")
+def create_user():
+    if request.method == "POST":
+        name = request.form["name"].strip()
+        username = request.form["username"].strip().lower()
+        role = request.form["role"]
+        block = request.form.get("block", "").strip().upper()
+        room = request.form.get("room_no", "").strip()
+        password = request.form["password"]
+        if not all([name, username, role, password]):
+            flash("Name, username, role, and password are required.", "error")
+        elif role not in ROLES:
+            flash("Invalid role.", "error")
+        elif role == "student" and not (block and room):
+            flash("Block and room number are required for students.", "error")
+        elif len(password) < 6:
+            flash("Password must be at least 6 characters.", "error")
+        else:
+            try:
+                get_db().execute(
+                    "INSERT INTO users(name, username, role, block, room_no, password_hash) VALUES (?,?,?,?,?,?)",
+                    (name, username, role, block, room, generate_password_hash(password)))
+                get_db().commit()
+                flash(f"{role.capitalize()} account created successfully.", "ok")
+                return redirect(url_for("admin_dashboard"))
+            except sqlite3.IntegrityError:
+                flash("That username is already taken.", "error")
+    return render_template("create_user.html", roles=ROLES)
+
+
+# Admin deletes a user
+@app.route("/admin/user/<int:uid>/delete", methods=["POST"])
+@login_required("admin")
+def delete_user(uid):
+    db = get_db()
+    user = db.execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone()
+    if not user:
+        abort(404)
+    if user["role"] == "admin":
+        flash("Cannot delete admin account.", "error")
+        return redirect(url_for("admin_dashboard"))
+    # Delete user
+    db.execute("DELETE FROM users WHERE id=?", (uid,))
+    db.commit()
+    flash(f"User {user['name']} deleted.", "ok")
+    return redirect(url_for("admin_dashboard"))
+
+
+# ---------- Rector ----------
+# Rector dashboard: view all complaints across all blocks, manage wardens, escalate issues
+@app.route("/rector")
+@login_required("rector")
+def rector_dashboard():
+    db = get_db()
+    # View all complaints with filters
+    status = request.args.get("status", "")
+    cat = request.args.get("category", type=int)
+    block = request.args.get("block", "").strip().upper()
+    prio = request.args.get("priority", "")
+    sql = """SELECT c.*, cat.name AS category, u.name AS student, u.block, u.room_no, s.name AS staff_name
+             FROM complaints c
+             JOIN categories cat ON cat.id=c.category_id
+             JOIN users u ON u.id=c.student_id
+             LEFT JOIN staff s ON s.id=c.assigned_to WHERE 1=1"""
+    args = []
+    if status in STATUSES:
+        sql += " AND c.status=?"; args.append(status)
+    if cat:
+        sql += " AND c.category_id=?"; args.append(cat)
+    if block:
+        sql += " AND u.block=?"; args.append(block)
+    if prio in PRIORITIES:
+        sql += " AND c.priority=?"; args.append(prio)
+    sql += " ORDER BY (c.status='Resolved'), (c.priority='Urgent') DESC, c.id DESC"
+    rows = db.execute(sql, args).fetchall()
+    cats = db.execute("SELECT * FROM categories ORDER BY name").fetchall()
+    totals = {s: db.execute("SELECT COUNT(*) FROM complaints WHERE status=?", (s,)).fetchone()[0] for s in STATUSES}
+    overdue = sum(1 for r in db.execute("SELECT * FROM complaints").fetchall() if is_overdue(r))
+    # Get all wardens
+    wardens = db.execute("SELECT * FROM users WHERE role='warden'").fetchall()
+    return render_template("rector_dashboard.html", complaints=rows, cats=cats, totals=totals,
+                           overdue=overdue, priorities=PRIORITIES, wardens=wardens,
+                           f=dict(status=status, category=cat, block=block, priority=prio))
+
+
+# Rector can view any complaint details
+@app.route("/rector/complaint/<int:cid>")
+@login_required("rector")
+def rector_view_complaint(cid):
+    db = get_db()
+    c = db.execute(
+        """SELECT c.*, cat.name AS category, u.name AS student, u.block, u.room_no,
+                  s.name AS staff_name, s.skill AS staff_skill, s.phone AS staff_phone
+           FROM complaints c
+           JOIN categories cat ON cat.id=c.category_id
+           JOIN users u ON u.id=c.student_id
+           LEFT JOIN staff s ON s.id=c.assigned_to
+           WHERE c.id=?""", (cid,)).fetchone()
+    if c is None:
+        abort(404)
+    hist = db.execute("SELECT * FROM history WHERE complaint_id=? ORDER BY id", (cid,)).fetchall()
+    fb = db.execute("SELECT * FROM feedback WHERE complaint_id=?", (cid,)).fetchone()
+    return render_template("rector_complaint_detail.html", c=c, hist=hist, fb=fb)
 
 
 # Friendly error pages: 403 = not allowed, 404 = page not found, 413 = file too large.

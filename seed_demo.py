@@ -29,6 +29,10 @@ for name, (username, block, room, password) in students_map.items():
     db.execute("INSERT OR IGNORE INTO users(name, username, role, block, room_no, password_hash) VALUES (?,?,?,?,?,?)",
                (name, username, "student", block, room, generate_password_hash(password)))
 
+# Create default warden account
+db.execute("INSERT OR IGNORE INTO users(name, username, role, password_hash) VALUES (?,?,?,?)",
+           ("Hostel Warden", "warden", "warden", generate_password_hash("warden123")))
+
 # Get category IDs
 category_ids = {r["name"]: r["id"] for r in db.execute("SELECT * FROM categories").fetchall()}
 

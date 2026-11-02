@@ -1,37 +1,45 @@
 {% extends "base.html" %}
-{% block title %}Warden Dashboard{% endblock %}
+{% block title %}Admin Dashboard{% endblock %}
 {% block content %}
-<h1>Warden Dashboard</h1>
+<h1>Admin Dashboard</h1>
 <div class="stats">
-  {% for s in STATUSES %}<div class="stat"><b>{{ totals[s] }}</b><span>{{ s }}</span></div>{% endfor %}
-  <div class="stat"><b style="color:var(--red)">{{ overdue }}</b><span>Overdue</span></div>
+  <div class="stat"><b>{{ role_counts.values() | sum }}</b><span>Total Users</span></div>
+  <div class="stat"><b>{{ role_counts.get('student', 0) }}</b><span>Students</span></div>
+  <div class="stat"><b>{{ role_counts.get('warden', 0) }}</b><span>Wardens</span></div>
+  <div class="stat"><b>{{ role_counts.get('rector', 0) }}</b><span>Rectors</span></div>
+  <div class="stat"><b>{{ total_complaints }}</b><span>Total Complaints</span></div>
+  <div class="stat"><b>{{ total_resolved }}</b><span>Resolved</span></div>
+  <div class="stat"><b>{{ total_staff }}</b><span>Staff Members</span></div>
 </div>
-<form class="card filters" method="get">
-  <div><label>Status</label><select name="status"><option value="">All</option>
-    {% for s in STATUSES %}<option {{ 'selected' if f.status == s }}>{{ s }}</option>{% endfor %}</select></div>
-  <div><label>Category</label><select name="category"><option value="">All</option>
-    {% for c in cats %}<option value="{{ c.id }}" {{ 'selected' if f.category == c.id }}>{{ c.name }}</option>{% endfor %}</select></div>
-  <div><label>Priority</label><select name="priority"><option value="">All</option>
-    {% for p in priorities %}<option {{ 'selected' if f.priority == p }}>{{ p }}</option>{% endfor %}</select></div>
-  <div><label>Block</label><input name="block" value="{{ f.block }}"></div>
-  <div><label>Room</label><input name="room" value="{{ f.room }}"></div>
-  <div><button class="btn" type="submit">Filter</button> <a class="btn sec" href="{{ url_for('admin_dashboard') }}" style="margin:0">Reset</a></div>
-</form>
-{% if complaints %}
-<div class="table-wrap"><table>
-  <tr><th>#</th><th>Title</th><th>Category</th><th>Student / Room</th><th>Priority</th><th>Status</th><th>Assigned</th><th>Filed</th><th></th></tr>
-  {% for c in complaints %}
-  <tr>
-    <td>{{ c.id }}</td><td>{{ c.title }}</td><td>{{ c.category }}</td>
-    <td>{{ c.student }}<br><small class="muted">Block {{ c.block }}, Room {{ c.room_no }}</small></td>
-    <td><span class="badge p-{{ c.priority }}">{{ c.priority }}</span></td>
-    <td><span class="badge s-{{ c.status|replace(' ','') }}">{{ c.status }}</span>
-        {% if is_overdue(c) %}<span class="badge overdue">Overdue</span>{% endif %}</td>
-    <td>{{ c.staff_name or '-' }}</td>
-    <td>{{ c.created_at[:16] }}</td>
-    <td><a href="{{ url_for('view_complaint', cid=c.id) }}">Manage</a></td>
-  </tr>
-  {% endfor %}
-</table></div>
-{% else %}<div class="card empty">No complaints match these filters.</div>{% endif %}
+
+<a class="btn" href="{{ url_for('create_user') }}" style="margin:0 0 1rem">+ Add New User</a>
+
+<div class="card">
+  <h2>User Management</h2>
+  <div class="table-wrap"><table>
+    <tr><th>Name</th><th>Username</th><th>Role</th><th>Block</th><th>Room</th><th>Actions</th></tr>
+    {% for user in users %}
+    <tr>
+      <td>{{ user.name }}</td>
+      <td>{{ user.username }}</td>
+      <td><span class="badge r-{{ user.role }}">{{ user.role|capitalize }}</span></td>
+      <td>{{ user.block or '-' }}</td>
+      <td>{{ user.room_no or '-' }}</td>
+      <td>
+        {% if user.role != 'admin' %}
+        <form action="{{ url_for('delete_user', uid=user.id) }}" method="POST" style="display:inline;">
+          <button type="submit" class="btn sec" style="padding:.3rem .8rem;font-size:.85rem;margin:0" onclick="return confirm('Are you sure?')">Delete</button>
+        </form>
+        {% else %}
+        <span class="muted">System</span>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </table></div>
+</div>
+
+<style>
+.r-admin{background:#dc3545;color:#fff}.r-rector{background:#fd7e14;color:#fff}.r-warden{background:#0d6efd;color:#fff}.r-student{background:#198754;color:#fff}
+</style>
 {% endblock %}

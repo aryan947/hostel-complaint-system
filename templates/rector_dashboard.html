@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}Rector Dashboard{% endblock %}
+{% block content %}
+<h1>Rector Dashboard</h1>
+<div class="stats">
+  <div class="stat"><b>{{ totals.values() | sum }}</b><span>Total Complaints</span></div>
+  {% for status in STATUSES %}
+  <div class="stat"><b>{{ totals.get(status, 0) }}</b><span>{{ status }}</span></div>
+  {% endfor %}
+  <div class="stat"><b>{{ totals.get('Escalated', 0) }}</b><span>Escalated</span></div>
+  <div class="stat"><b>{{ overdue }}</b><span>Overdue</span></div>
+</div>
+
+<div class="card">
+  <h2>Filter Complaints</h2>
+  <form class="filters" method="GET">
+    <div>
+      <label>Status</label>
+      <select name="status">
+        <option value="">All</option>
+        {% for status in STATUSES %}
+        <option value="{{ status }}" {% if f.status == status %}selected{% endif %}>{{ status }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label>Category</label>
+      <select name="category">
+        <option value="">All</option>
+        {% for cat in cats %}
+        <option value="{{ cat.id }}" {% if f.category == cat.id %}selected{% endif %}>{{ cat.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label>Block</label>
+      <input type="text" name="block" placeholder="Block" value="{{ f.block }}">
+    </div>
+    <div>
+      <label>Priority</label>
+      <select name="priority">
+        <option value="">All</option>
+        {% for prio in priorities %}
+        <option value="{{ prio }}" {% if f.priority == prio %}selected{% endif %}>{{ prio }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <button class="btn" type="submit">Filter</button>
+    <a class="btn sec" href="{{ url_for('rector_dashboard') }}">Clear</a>
+  </form>
+</div>
+
+<div class="card">
+  <h2>All Complaints</h2>
+  <div class="table-wrap"><table>
+    <tr><th>#</th><th>Title</th><th>Category</th><th>Student</th><th>Block</th><th>Room</th><th>Priority</th><th>Status</th><th>Staff</th><th>Filed</th><th></th></tr>
+    {% for c in complaints %}
+    <tr>
+      <td>{{ c.id }}</td>
+      <td><a href="{{ url_for('rector_view_complaint', cid=c.id) }}">{{ c.title }}</a></td>
+      <td>{{ c.category }}</td>
+      <td>{{ c.student }}</td>
+      <td>{{ c.block }}</td>
+      <td>{{ c.room_no }}</td>
+      <td><span class="badge p-{{ c.priority }}">{{ c.priority }}</span></td>
+      <td><span class="badge s-{{ c.status|replace(' ','') }}">{{ c.status }}</span>
+          {% if is_overdue(c) %}<span class="badge overdue">Overdue</span>{% endif %}</td>
+      <td>{{ c.staff_name or '-' }}</td>
+      <td>{{ c.created_at[:10] }}</td>
+      <td><a href="{{ url_for('rector_view_complaint', cid=c.id) }}">View</a></td>
+    </tr>
+    {% endfor %}
+  </table></div>
+</div>
+
+<div class="card">
+  <h2>Wardens</h2>
+  <div class="table-wrap"><table>
+    <tr><th>Name</th><th>Username</th></tr>
+    {% for warden in wardens %}
+    <tr>
+      <td>{{ warden.name }}</td>
+      <td>{{ warden.username }}</td>
+    </tr>
+    {% endfor %}
+  </table></div>
+</div>
+
+<style>
+.s-Escalated{background:#6f42c1;color:#fff}
+</style>
+{% endblock %}

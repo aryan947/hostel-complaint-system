@@ -5,17 +5,71 @@
   <h2>Submit a Complaint</h2>
   <form method="post" enctype="multipart/form-data">
     <label>Category *</label>
-    <select name="category_id" required>
+    <select name="category_id" required onchange="checkCategory()">
       <option value="">-- choose --</option>
       {% for c in cats %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
     </select>
+
     <label>Short title *</label><input name="title" maxlength="100" placeholder="e.g. Fan not working" required>
+
     <label>Description *</label><textarea name="description" placeholder="Describe the problem and its exact location" required></textarea>
+
     <label>Priority</label>
     <select name="priority">{% for p in priorities %}<option>{{ p }}</option>{% endfor %}</select>
     <small class="muted">Use Urgent only for water, electricity or safety problems.</small>
+
+    <label>Complaint About *</label>
+    <select name="target_type" id="target_type" required onchange="toggleTargetFields()">
+      <option value="facility">Facility/Equipment</option>
+      <option value="warden">Warden Behavior</option>
+    </select>
+
+    <div id="warden_field" style="display:none;">
+      <label>Select Warden *</label>
+      <select name="target_id" id="target_id">
+        <option value="">-- choose warden --</option>
+        {% for w in wardens %}
+        <option value="{{ w.id }}">{{ w.name }} (Block {{ w.block or 'N/A' }})</option>
+        {% endfor %}
+      </select>
+      <small class="muted" style="color:#dc3545;">⚠️ This complaint will be escalated to the Rector. The warden will NOT see it.</small>
+    </div>
+
+    <label>
+      <input type="checkbox" name="anonymous" id="anonymous">
+      Submit anonymously (your name will not be shown)
+    </label>
+
     <label>Photo (optional, max 3 MB)</label><input type="file" name="photo" accept="image/*">
+
     <button class="btn" type="submit">Submit Complaint</button>
   </form>
 </div>
+
+<script>
+function toggleTargetFields() {
+    const targetType = document.getElementById('target_type').value;
+    const wardenField = document.getElementById('warden_field');
+
+    if (targetType === 'warden') {
+        wardenField.style.display = 'block';
+        document.getElementById('target_id').required = true;
+    } else {
+        wardenField.style.display = 'none';
+        document.getElementById('target_id').required = false;
+    }
+}
+
+function checkCategory() {
+    const categorySelect = document.querySelector('select[name="category_id"]');
+    const targetSelect = document.getElementById('target_type');
+    const categoryText = categorySelect.options[categorySelect.selectedIndex].text;
+
+    // Auto-select "warden" if category is "Staff Behavior"
+    if (categoryText === 'Staff Behavior') {
+        targetSelect.value = 'warden';
+        toggleTargetFields();
+    }
+}
+</script>
 {% endblock %}

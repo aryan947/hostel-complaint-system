@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Complaint #{{ c.id }}{% endblock %}
+{% block content %}
+<h1>Complaint #{{ c.id }}: {{ c.title }}</h1>
+<a class="btn sec" href="{{ url_for('rector_dashboard') }}">← Back to Dashboard</a>
+
+<div class="grid2">
+  <div>
+    <div class="card">
+      <dl class="meta">
+        <dt>Status</dt><dd><span class="badge s-{{ c.status|replace(' ','') }}">{{ c.status }}</span>
+          {% if is_overdue(c) %}<span class="badge overdue">Overdue</span>{% endif %}</dd>
+        <dt>Category</dt><dd>{{ c.category }}</dd>
+        <dt>Priority</dt><dd><span class="badge p-{{ c.priority }}">{{ c.priority }}</span></dd>
+        <dt>Student</dt><dd>{{ c.student }} (Block {{ c.block }}, Room {{ c.room_no }})</dd>
+        <dt>Filed on</dt><dd>{{ c.created_at[:16] }}</dd>
+        {% if c.resolved_at %}<dt>Resolved on</dt><dd>{{ c.resolved_at[:16] }}</dd>{% endif %}
+        <dt>Assigned to</dt>
+        <dd>{% if c.staff_name %}{{ c.staff_name }} ({{ c.staff_skill }}){% if c.staff_phone %}, {{ c.staff_phone }}{% endif %}{% else %}<span class="muted">Not assigned yet</span>{% endif %}</dd>
+      </dl>
+      <h3 style="margin-top:1rem">Description</h3>
+      <p style="white-space:pre-wrap">{{ c.description }}</p>
+      {% if c.photo %}<img class="photo" src="{{ url_for('uploaded_file', filename=c.photo) }}" alt="Complaint photo">{% endif %}
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Progress Timeline</h3>
+    <ul class="timeline">
+      {% for h in hist %}
+      <li><span class="badge s-{{ h.status|replace(' ','') }}">{{ h.status }}</span>
+          <small>{{ h.at[:16] }}</small><br>{{ h.note }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+</div>
+
+{% if fb %}
+<div class="card"><h3>Student Feedback</h3>
+  <p><b>{{ fb.rating }} / 5</b> &middot; Fix confirmed</p>
+  {% if fb.comment %}<p>{{ fb.comment }}</p>{% endif %}
+</div>
+{% endif %}
+
+<style>
+.s-Escalated{background:#6f42c1;color:#fff}
+</style>
+{% endblock %}

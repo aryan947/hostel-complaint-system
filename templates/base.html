@@ -15,12 +15,16 @@
     {% if g.user.role == 'student' %}
       <a href="{{ url_for('student_dashboard') }}">My Complaints</a>
       <a href="{{ url_for('new_complaint') }}">New Complaint</a>
-    {% else %}
-      <a href="{{ url_for('admin_dashboard') }}">Dashboard</a>
+    {% elif g.user.role == 'warden' %}
+      <a href="{{ url_for('warden_dashboard') }}">Dashboard</a>
       <a href="{{ url_for('stats') }}">Statistics</a>
       <a href="{{ url_for('manage_staff') }}">Staff</a>
+    {% elif g.user.role == 'rector' %}
+      <a href="{{ url_for('rector_dashboard') }}">Dashboard</a>
+    {% elif g.user.role == 'admin' %}
+      <a href="{{ url_for('admin_dashboard') }}">Dashboard</a>
     {% endif %}
-    <span class="who">{{ g.user.name }}</span>
+    <span class="who">{{ g.user.name }} ({{ g.user.role|capitalize }})</span>
     <a class="pill" href="{{ url_for('logout') }}">Logout</a>
   {% else %}
     <a href="{{ url_for('login') }}">Login</a>
